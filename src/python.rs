@@ -1,7 +1,5 @@
 //! Python bindings for airlock.
 
-use std::net::IpAddr;
-
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
@@ -15,18 +13,20 @@ pyo3::create_exception!(airlock, InvalidUrl, AirlockError);
 pyo3::create_exception!(airlock, DnsError, AirlockError);
 
 /// Policy enum for Python.
-#[pyclass(name = "Policy")]
-#[derive(Clone, Copy)]
+#[pyclass(name = "Policy", eq, eq_int)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PyPolicy {
-    PUBLIC_ONLY,
-    ALLOW_PRIVATE,
+    #[pyo3(name = "PUBLIC_ONLY")]
+    PublicOnly,
+    #[pyo3(name = "ALLOW_PRIVATE")]
+    AllowPrivate,
 }
 
 impl From<PyPolicy> for RustPolicy {
     fn from(p: PyPolicy) -> Self {
         match p {
-            PyPolicy::PUBLIC_ONLY => RustPolicy::PublicOnly,
-            PyPolicy::ALLOW_PRIVATE => RustPolicy::AllowPrivate,
+            PyPolicy::PublicOnly => RustPolicy::PublicOnly,
+            PyPolicy::AllowPrivate => RustPolicy::AllowPrivate,
         }
     }
 }

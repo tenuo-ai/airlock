@@ -90,14 +90,19 @@ pub async fn validate(url: &str, policy: Policy) -> Result<Validated, Error> {
 /// This blocks the current thread while performing DNS resolution.
 /// Prefer the async version when possible.
 ///
-/// # Panics
-///
-/// Panics if called from within an async runtime without using
-/// `tokio::task::block_in_place`.
+/// This function works both inside and outside of a Tokio runtime.
+/// When called from outside a runtime, it creates a temporary one.
 pub fn validate_sync(url: &str, policy: Policy) -> Result<Validated, Error> {
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(validate(url, policy))
-    })
+    // Try to use an existing runtime first
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        // We're inside a runtime, use block_in_place
+        tokio::task::block_in_place(|| handle.block_on(validate(url, policy)))
+    } else {
+        // No runtime, create a temporary one
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| Error::dns_error("runtime", e.to_string()))?;
+        rt.block_on(validate(url, policy))
+    }
 }
 
 /// Resolve a hostname to an IP address.
