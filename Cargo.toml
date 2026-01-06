@@ -1,0 +1,28 @@
+[package]
+name = "airlock"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "SSRF-safe URL validation for Rust and Python"
+repository = "https://github.com/tenuo-ai/airlock"
+keywords = ["ssrf", "security", "url", "validation"]
+categories = ["web-programming", "network-programming"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+url = "2"
+ipnet = "2"
+idna = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["net", "rt"] }
+hickory-resolver = "0.25"
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
+python = ["pyo3"]
