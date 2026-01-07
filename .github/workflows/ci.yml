@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: [stable, "1.75"]  # stable + MSRV
+        rust: [stable, "1.80"]  # stable + MSRV
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -70,4 +70,4 @@ jobs:
       - name: Test import
         run: |
           pip install target/wheels/*.whl
-          python -c "from airlock import validate_sync, Policy; print('Import OK')"
+          python -c "from url_jail import validate_sync, Policy; print('Import OK')"
