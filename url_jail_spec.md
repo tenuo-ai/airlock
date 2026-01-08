@@ -1,6 +1,6 @@
 # Specification: `url_jail`
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 
 **Tagline:** SSRF-safe URL validation for Rust and Python.
 
@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-`url_jail` validates URLs and resolved IPs to prevent Server-Side Request Forgery (SSRF). It does not make HTTP requests itself—it tells you whether a URL is safe to fetch and which IP to connect to.
+`url_jail` validates URLs and resolved IPs to prevent Server-Side Request Forgery (SSRF). It provides both validation-only APIs and full fetch helpers with redirect chain validation.
 
 Like `path_jail` prevents path traversal and `safe_unzip` prevents Zip Slip, `url_jail` prevents SSRF. Same philosophy: security by default, minimal API, zero configuration required.
 
@@ -34,27 +34,25 @@ SSRF attacks exploit this to:
 
 ## 3. The Solution
 
+**Python (recommended - full DNS rebinding protection):**
 ```python
-from url_jail import validate, Policy
+from url_jail import get_sync
 
-# Validate before fetching
-result = validate("http://169.254.169.254/credentials", Policy.PUBLIC_ONLY)
-# Raises: SsrfBlocked("169.254.169.254 is a metadata endpoint")
-
-result = validate("https://example.com/api", Policy.PUBLIC_ONLY)
-# Ok: result.ip = "93.184.216.34", result.host = "example.com"
-
-# Now safe to fetch with your preferred client
-response = requests.get("https://example.com/api")
+body = get_sync(user_url)  # Safe! Validates URL and all redirects
 ```
 
+**Rust:**
 ```rust
 use url_jail::{validate, Policy};
+use reqwest::Client;
 
-let result = validate("https://example.com/api", Policy::PublicOnly).await?;
-// result.ip = 93.184.216.34
-// result.host = "example.com"
-// result.port = 443
+let v = validate("https://example.com/api", Policy::PublicOnly).await?;
+
+let client = Client::builder()
+    .resolve(&v.host, v.to_socket_addr())
+    .build()?;
+
+let response = client.get(&v.url).send().await?;
 ```
 
 ---
@@ -67,9 +65,10 @@ let result = validate("https://example.com/api", Policy::PublicOnly).await?;
 | **Internal network scan** | Fetch `192.168.1.1` | Private IPs blocked |
 | **Localhost access** | Fetch `127.0.0.1` | Loopback blocked |
 | **DNS rebinding** | DNS returns `1.2.3.4`, then `127.0.0.1` | Returns verified IP to connect to |
-| **Redirect bypass** | `https://safe.com` → `http://127.0.0.1` | Validate each URL before following |
+| **Redirect bypass** | `https://safe.com` → `http://127.0.0.1` | `fetch()` validates each hop |
 | **IPv6 bypass** | `::ffff:127.0.0.1` | All IPv6 variants normalized |
 | **Hostname tricks** | `LOCALHOST`, `127.0.0.1.` | Hostname normalized before resolution |
+| **IP encoding bypass** | `0177.0.0.1`, `0x7f000001`, `127.1` | Octal/hex/short-form rejected |
 
 ---
 
@@ -78,41 +77,43 @@ let result = validate("https://example.com/api", Policy::PublicOnly).await?;
 ### Core Functions
 
 ```rust
-use url_jail::{validate, validate_sync, Policy, Validated};
+use url_jail::{validate, validate_sync, validate_with_options, Policy, ValidateOptions, Validated};
 
 // Async validation (requires tokio runtime)
-let result: Validated = validate(
-    "https://example.com/path", 
-    Policy::PublicOnly
-).await?;
+let result: Validated = validate("https://example.com/path", Policy::PublicOnly).await?;
 
 // Sync validation (blocks current thread)
-let result: Validated = validate_sync(
-    "https://example.com/path",
-    Policy::PublicOnly
-)?;
+let result: Validated = validate_sync("https://example.com/path", Policy::PublicOnly)?;
 
-println!("Safe to connect to {} ({})", result.host, result.ip);
+// With custom timeout
+let opts = ValidateOptions { dns_timeout: Duration::from_secs(10) };
+let result = validate_with_options(url, Policy::PublicOnly, opts).await?;
+```
+
+### Fetch with Redirect Validation (feature = "fetch")
+
+```rust
+use url_jail::{fetch, fetch_sync, FetchResult};
+
+// Full redirect chain validation - DNS rebinding safe
+let result: FetchResult = fetch("https://example.com/", Policy::PublicOnly).await?;
+println!("Final response: {:?}", result.response);
+println!("Redirect chain: {:?}", result.chain);
 ```
 
 ### Validated Result
 
 ```rust
 pub struct Validated {
-    /// The verified IP address to connect to
-    pub ip: IpAddr,
-    
-    /// Original hostname (use for Host header / SNI)
-    pub host: String,
-    
-    /// Port number
-    pub port: u16,
-    
-    /// Full URL (normalized)
-    pub url: String,
-    
-    /// Whether HTTPS
-    pub https: bool,
+    pub ip: IpAddr,      // The verified IP address to connect to
+    pub host: String,    // Original hostname (use for Host header / SNI)
+    pub port: u16,       // Port number
+    pub url: String,     // Full URL (normalized)
+    pub https: bool,     // Whether HTTPS
+}
+
+impl Validated {
+    pub fn to_socket_addr(&self) -> SocketAddr;
 }
 ```
 
@@ -121,31 +122,48 @@ pub struct Validated {
 ```rust
 pub enum Policy {
     /// Block private IPs, loopback, link-local, metadata endpoints.
-    /// This is the default.
     PublicOnly,
     
     /// Allow private IPs, but still block loopback and metadata.
-    /// Use for internal service-to-service calls.
     AllowPrivate,
 }
 ```
 
-### URL Parsing Only
+### Custom Policy (PolicyBuilder)
 
 ```rust
-use url_jail::SafeUrl;
+use url_jail::{PolicyBuilder, Policy, CustomPolicy};
 
-// Parse and normalize without DNS resolution
-let url = SafeUrl::parse("https://EXAMPLE.COM./path")?;
-assert_eq!(url.host(), "example.com");
-assert_eq!(url.path(), "/path");
+let policy: CustomPolicy = PolicyBuilder::new(Policy::AllowPrivate)
+    .block_cidr("10.0.0.0/8")         // Block specific internal range
+    .allow_cidr("192.168.1.0/24")     // Allow specific subnet
+    .block_host("*.internal.example.com")  // Block hostname pattern
+    .build();
+
+assert!(policy.is_ip_allowed("10.1.2.3".parse().unwrap()).is_err());
+assert!(policy.is_ip_allowed("192.168.1.50".parse().unwrap()).is_ok());
 ```
 
 ---
 
 ## 6. Python API
 
-### Core Functions
+### Fetch (Recommended)
+
+```python
+from url_jail import get, get_sync
+
+# Async (full redirect chain validation)
+body = await get("https://example.com/api")
+
+# Sync
+body = get_sync("https://example.com/api")
+
+# With explicit policy (default is PUBLIC_ONLY)
+body = get_sync(url, Policy.ALLOW_PRIVATE)
+```
+
+### Validation Only
 
 ```python
 from url_jail import validate, validate_sync, Policy
@@ -166,133 +184,33 @@ print(result.https)   # True
 ### Error Handling
 
 ```python
-from url_jail import validate_sync, SsrfBlocked, InvalidUrl
+from url_jail import get_sync, UrlJailError, SsrfBlocked, InvalidUrl, DnsError
 
 try:
-    result = validate_sync(user_input, Policy.PUBLIC_ONLY)
+    body = get_sync(user_input)
 except SsrfBlocked as e:
-    print(f"Blocked: {e.ip} - {e.reason}")
+    print(f"Blocked: {e}")
 except InvalidUrl as e:
-    print(f"Bad URL: {e.reason}")
+    print(f"Bad URL: {e}")
+except DnsError as e:
+    print(f"DNS failed: {e}")
+except UrlJailError as e:
+    print(f"Error: {e}")  # Timeout, TooManyRedirects, HttpError
 ```
 
 ---
 
-## 7. How It Works
-
-### Step 1: Parse & Normalize
-
-```
-Input: "https://USER:PASS@EXAMPLE.COM.:443/path"
-
-Normalized:
-  - Scheme: https
-  - Host: example.com  (lowercase, no trailing dot, no userinfo)
-  - Port: 443
-  - Path: /path
-```
-
-### Step 2: Resolve DNS
-
-```
-DNS lookup: example.com → 93.184.216.34
-```
-
-### Step 3: Check IP Against Policy
-
-```
-Policy: PublicOnly
-IP: 93.184.216.34
-Result: ✅ Public IP, allowed
-```
-
-### Step 4: Return Verified Target
-
-```rust
-Validated {
-    ip: 93.184.216.34,
-    host: "example.com",  // Use for Host header and SNI
-    port: 443,
-    https: true,
-}
-```
-
----
-
-## 8. Using with HTTP Clients
-
-`url_jail` validates. You fetch. This gives you control over the HTTP client.
-
-### Python + requests
-
-```python
-from url_jail import validate_sync, Policy
-import requests
-
-result = validate_sync(user_url, Policy.PUBLIC_ONLY)
-
-# Safe to fetch - IP has been verified
-response = requests.get(result.url)
-```
-
-### Python + httpx (async)
-
-```python
-from url_jail import validate, Policy
-import httpx
-
-async def safe_fetch(url: str) -> str:
-    result = await validate(url, Policy.PUBLIC_ONLY)
-    async with httpx.AsyncClient() as client:
-        response = await client.get(result.url)
-        return response.text
-```
-
-### Rust + reqwest
-
-For DNS rebinding protection, use reqwest's resolver override:
-
-```rust
-use url_jail::{validate, Policy};
-use reqwest::Client;
-use std::net::SocketAddr;
-
-let result = validate(url, Policy::PublicOnly).await?;
-
-// Tell reqwest to use verified IP for this host
-// This preserves correct SNI/TLS handshake
-let client = Client::builder()
-    .resolve(&result.host, SocketAddr::new(result.ip, result.port))
-    .build()?;
-
-let response = client.get(&result.url).send().await?;
-```
-
-**Important:** Don't manually connect to the IP and set the Host header. For HTTPS, the TLS handshake requires SNI (Server Name Indication) to match the hostname. Use your client's resolver override API instead.
-
-### Rust + hyper
-
-```rust
-use hyper::client::connect::dns::Name;
-
-// Custom resolver that returns the verified IP
-let connector = HttpConnector::new_with_resolver(
-    VerifiedResolver::new(result.host.clone(), result.ip)
-);
-```
-
----
-
-## 9. What's Blocked
+## 7. What's Blocked
 
 ### Hostname Blocklist (Checked Before DNS)
-
-These hostnames are blocked before DNS resolution:
 
 | Hostname | Description |
 |----------|-------------|
 | `metadata.google.internal` | GCP metadata |
+| `metadata.goog` | GCP alternate |
 | `metadata.azure.internal` | Azure metadata |
+| `169.254.169.254` | Literal IP as hostname |
+| `instance-data` | AWS alternate (EC2-Classic) |
 
 ### IP Blocklist — Always Blocked (Both Policies)
 
@@ -315,268 +233,107 @@ These hostnames are blocked before DNS resolution:
 | `192.168.0.0/16` | Private (Class C) |
 | `fc00::/7` | Private (IPv6 ULA) |
 
----
+### IP Encoding Rejected
 
-## 10. Hostname Normalization
-
-Prevents bypass tricks:
-
-| Input | Normalized | Bypass Prevented |
-|-------|------------|------------------|
-| `EXAMPLE.COM` | `example.com` | Case sensitivity |
-| `example.com.` | `example.com` | Trailing dot |
-| `user:pass@example.com` | `example.com` | Authority confusion |
-| `①②⑦.0.0.1` | Error | Unicode digit bypass |
-| `[example.com]` | Error | Bracket confusion |
-| `0177.0.0.1` | Error | Octal IP encoding |
-| `2130706433` | Error | Decimal IP encoding |
+| Format | Example | Description |
+|--------|---------|-------------|
+| Octal | `0177.0.0.1` | `= 127.0.0.1` |
+| Decimal | `2130706433` | `= 127.0.0.1` |
+| Hex | `0x7f000001` | `= 127.0.0.1` |
+| Short-form | `127.1` | `= 127.0.0.1` |
+| Bracketed | `[example.com]` | Only valid for IPv6 |
 
 ---
 
-## 11. IPv6 Handling
-
-All representations of blocked IPs are caught:
-
-```python
-# These all map to loopback - all blocked:
-"::1"
-"0:0:0:0:0:0:0:1"  
-"::ffff:127.0.0.1"           # IPv4-mapped
-"0000:0000:0000:0000:0000:ffff:7f00:0001"
-
-# These all map to metadata - all blocked:
-"::ffff:169.254.169.254"
-"0:0:0:0:0:ffff:a9fe:a9fe"
-```
-
----
-
-## 12. Error Types
+## 8. Error Types
 
 ### Rust
 
 ```rust
 pub enum Error {
-    /// IP address is blocked by policy
-    SsrfBlocked { 
-        url: String, 
-        ip: IpAddr, 
-        reason: String,
-    },
+    SsrfBlocked { url: String, ip: IpAddr, reason: String },
+    HostnameBlocked { url: String, host: String, reason: String },
+    InvalidUrl { url: String, reason: String },
+    DnsError { host: String, message: String },
+    Timeout { message: String },
     
-    /// Invalid URL syntax or forbidden scheme
-    InvalidUrl { 
-        url: String, 
-        reason: String,
-    },
-    
-    /// DNS resolution failed
-    DnsError { 
-        host: String, 
-        source: std::io::Error,
-    },
+    // feature = "fetch"
+    RedirectBlocked { original_url: String, redirect_url: String, reason: String },
+    TooManyRedirects { url: String, max: u8 },
+    HttpError { url: String, message: String },
 }
 ```
 
 ### Python
 
-```python
-class UrlJailError(Exception):
-    """Base class for url_jail errors"""
-    pass
-
-class SsrfBlocked(UrlJailError):
-    """IP address is blocked by policy"""
-    url: str
-    ip: str
-    reason: str
-
-class InvalidUrl(UrlJailError):
-    """Invalid URL syntax or forbidden scheme"""
-    url: str
-    reason: str
-
-class DnsError(UrlJailError):
-    """DNS resolution failed"""
-    host: str
-```
+| Exception | Description |
+|-----------|-------------|
+| `UrlJailError` | Base class for all errors |
+| `SsrfBlocked` | IP/hostname blocked by policy |
+| `InvalidUrl` | Malformed URL or forbidden scheme |
+| `DnsError` | DNS resolution failed |
 
 ---
 
-## 13. Integration with Tenuo
-
-`url_jail` handles network safety. Tenuo handles authorization.
-
-```python
-from url_jail import validate_sync, Policy
-from tenuo import Warrant
-
-def fetch_tool(url: str, warrant: Warrant) -> str:
-    # 1. Validate URL and resolve DNS (url_jail)
-    result = validate_sync(url, Policy.PUBLIC_ONLY)
-    
-    # 2. Check authorization (tenuo)
-    warrant.check("fetch", result.url)
-    
-    # 3. Fetch with verified URL
-    return requests.get(result.url).text
-```
-
----
-
-## 14. Dependencies
-
-### Rust
+## 9. Features
 
 ```toml
 [dependencies]
+url_jail = "0.2"
+
+# Enable fetch() with redirect validation
+url_jail = { version = "0.2", features = ["fetch"] }
+
+# Enable tracing for logging
+url_jail = { version = "0.2", features = ["tracing"] }
+```
+
+| Feature | Description |
+|---------|-------------|
+| `fetch` | `fetch()`, `fetch_sync()`, `get()`, `get_sync()` |
+| `tracing` | Debug/warn logs for validation decisions |
+| `python` | Python bindings (via maturin) |
+
+---
+
+## 10. Dependencies
+
+```toml
 url = "2"
 ipnet = "2"
-idna = "0.5"
-thiserror = "1"
-tokio = { version = "1", features = ["net"] }
-hickory-resolver = "0.24"  # DNS resolution
+idna = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["net", "rt", "time"] }
+hickory-resolver = "0.25"
+reqwest = { version = "0.12", optional = true }
+tracing = { version = "0.1", optional = true }
 ```
 
-Minimal. No HTTP client bundled.
-
-### Python
-
-```toml
-[project]
-dependencies = []  # No runtime deps - Rust does the work
-
-[build-system]
-requires = ["maturin>=1.0"]
-```
+Minimal. HTTP client optional.
 
 ---
 
-## 15. Comparison
+## 11. Changelog
 
-| | url_jail | requests | urllib |
-|---|---------|----------|--------|
-| SSRF protection | ✅ | ❌ | ❌ |
-| Metadata blocking | ✅ | ❌ | ❌ |
-| DNS rebinding info | ✅ | ❌ | ❌ |
-| IPv6 normalization | ✅ | ❌ | ❌ |
-| Hostname normalization | ✅ | ❌ | ❌ |
-| Bring your own client | ✅ | N/A | N/A |
+### v0.2.0
 
----
+- **Python type stubs** (`url_jail.pyi`)
+- **Timeout configuration** (`ValidateOptions`, `Timeout` error)
+- **Custom blocklists** (`PolicyBuilder`, `CustomPolicy`)
+- **Tracing support** (optional feature)
+- Expanded IP encoding rejection (hex, short-form)
+- Bracket validation for hostnames
 
-## 16. Limitations
+### v0.1.0
 
-- **Validation only** — Does not make HTTP requests
-- **HTTP/HTTPS only** — Other schemes rejected
-- **No redirect following** — Validate each URL in redirect chain yourself
-- **Standard IP notation only** — Octal (`0177.0.0.1`) and decimal (`2130706433`) IPs are rejected
-
----
-
-## 17. Checklist
-
-### v0.1
-
-- [ ] `SafeUrl` parser with normalization
-- [ ] Hostname normalization (case, dots, userinfo)
-- [ ] `Policy` enum (PublicOnly, AllowPrivate)
-- [ ] IPv4 blocklist
-- [ ] IPv6 blocklist (all representations)
-- [ ] Metadata endpoint blocklist
-- [ ] DNS resolution
-- [ ] `validate()` async function
-- [ ] `Validated` result struct
-- [ ] Rust tests with bypass attempts
-- [ ] Python bindings (`validate`, `validate_sync`)
-- [ ] Python error types
-- [ ] Documentation
-- [ ] `cargo publish`
-- [ ] `pip install url_jail` (maturin)
-
-### v0.2
-
-- [ ] Custom blocklists
-- [ ] Custom allowlists  
-- [ ] Timeout configuration
-- [ ] Redirect chain validation helper
-- [ ] Python `get()` / `get_sync()` fetch helpers (with proper socket pinning)
+- Core validation (`validate`, `validate_sync`)
+- Fetch with redirect chain validation (`fetch`, `fetch_sync`)
+- Python bindings (`get`, `get_sync`, `validate`, `validate_sync`)
+- Hostname/IP blocklists
+- IPv6 handling
 
 ---
-
-## 18. Test Cases
-
-```python
-# Should block
-validate_sync("http://127.0.0.1/", Policy.PUBLIC_ONLY)           # Loopback
-validate_sync("http://169.254.169.254/", Policy.PUBLIC_ONLY)     # Metadata
-validate_sync("http://192.168.1.1/", Policy.PUBLIC_ONLY)         # Private
-validate_sync("http://[::1]/", Policy.PUBLIC_ONLY)               # IPv6 loopback
-validate_sync("http://[::ffff:127.0.0.1]/", Policy.PUBLIC_ONLY)  # IPv4-mapped
-validate_sync("http://0177.0.0.1/", Policy.PUBLIC_ONLY)          # Octal encoding → InvalidUrl
-validate_sync("http://2130706433/", Policy.PUBLIC_ONLY)          # Decimal encoding → InvalidUrl
-validate_sync("http://localhost/", Policy.PUBLIC_ONLY)           # Resolves to 127.0.0.1
-validate_sync("http://metadata.google.internal/", Policy.PUBLIC_ONLY)  # Hostname blocklist
-
-# Should allow
-validate_sync("https://example.com/", Policy.PUBLIC_ONLY)        # Public
-validate_sync("https://93.184.216.34/", Policy.PUBLIC_ONLY)      # Direct public IP
-
-# Should allow with AllowPrivate
-validate_sync("http://192.168.1.1/", Policy.ALLOW_PRIVATE)       # Private OK
-validate_sync("http://10.0.0.1/", Policy.ALLOW_PRIVATE)          # Private OK
-
-# Should still block with AllowPrivate
-validate_sync("http://127.0.0.1/", Policy.ALLOW_PRIVATE)         # Loopback always blocked
-validate_sync("http://169.254.169.254/", Policy.ALLOW_PRIVATE)   # Metadata always blocked
-```
-
----
-
-## 19. README
-
-```markdown
-# url_jail
-
-SSRF-safe URL validation for Python and Rust.
-
-## The Problem
-
-```python
-# User input: "http://169.254.169.254/credentials"
-response = requests.get(user_url)  # 💀 AWS credentials leaked
-```
-
-## The Solution
-
-```python
-from url_jail import validate_sync, Policy
-
-result = validate_sync(user_url, Policy.PUBLIC_ONLY)
-# Raises SsrfBlocked if URL points to internal/metadata IPs
-
-response = requests.get(result.url)  # ✅ Safe
-```
-
-## Installation
-
-```bash
-pip install url_jail
-```
-
-```toml
-[dependencies]
-url_jail = "0.1"
-```
-
-## What's Blocked
-
-- Cloud metadata endpoints (AWS, GCP, Azure)
-- Private IPs (10.x, 172.16.x, 192.168.x)
-- Loopback (127.x, localhost)
-- IPv6 equivalents of all the above
 
 ## License
 
 MIT OR Apache-2.0
-```

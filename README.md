@@ -24,7 +24,6 @@ use reqwest::Client;
 
 let v = validate("https://example.com/api", Policy::PublicOnly).await?;
 
-// Use the validated IP with reqwest
 let client = Client::builder()
     .resolve(&v.host, v.to_socket_addr())
     .build()?;
@@ -40,10 +39,10 @@ pip install url_jail
 
 ```toml
 [dependencies]
-url_jail = "0.1"
+url_jail = "0.2"
 
-# Enable fetch() for full redirect chain validation
-url_jail = { version = "0.1", features = ["fetch"] }
+# Enable fetch() for redirect chain validation
+url_jail = { version = "0.2", features = ["fetch"] }
 ```
 
 ## Policies
@@ -53,6 +52,17 @@ url_jail = { version = "0.1", features = ["fetch"] }
 | `PublicOnly` | Public IPs only | Private, loopback, link-local, metadata |
 | `AllowPrivate` | Private + public | Loopback, metadata (for internal services) |
 
+## Advanced: Custom Blocklist
+
+```rust
+use url_jail::{PolicyBuilder, Policy};
+
+let policy = PolicyBuilder::new(Policy::AllowPrivate)
+    .block_cidr("10.0.0.0/8")
+    .block_host("*.internal.example.com")
+    .build();
+```
+
 ## What's Blocked
 
 - Cloud metadata endpoints (AWS, GCP, Azure, Alibaba)
@@ -61,6 +71,13 @@ url_jail = { version = "0.1", features = ["fetch"] }
 - Link-local (169.254.x, fe80::)
 - IP encoding tricks: octal (`0177.0.0.1`), decimal (`2130706433`), hex (`0x7f000001`), short-form (`127.1`)
 - IPv4-mapped IPv6 (`::ffff:127.0.0.1`)
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| `fetch` | `fetch()` / `get_sync()` with redirect validation |
+| `tracing` | Logging for validation decisions |
 
 ## License
 
