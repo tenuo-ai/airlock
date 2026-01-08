@@ -44,7 +44,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -71,7 +71,7 @@ jobs:
     runs-on: macos-14  # M1 runner
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -93,21 +93,27 @@ jobs:
 
   # Build Linux musl wheels (for Alpine)
   build-wheels-musllinux:
-    name: Build wheel (musllinux)
+    name: Build wheel (musllinux py${{ matrix.python-version }})
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: PyO3/maturin-action@v1
         with:
           target: x86_64-unknown-linux-musl
-          args: --release --features python,fetch -o dist
+          args: --release --features python,fetch -o dist -i python${{ matrix.python-version }}
           manylinux: musllinux_1_2
       
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-musllinux
+          name: wheel-musllinux-py${{ matrix.python-version }}
           path: dist/*.whl
 
   # Publish to PyPI
