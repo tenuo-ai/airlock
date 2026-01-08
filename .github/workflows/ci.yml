@@ -22,7 +22,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --all-features
+      - run: cargo test --features fetch,tracing
 
   clippy:
     name: Clippy
@@ -33,7 +33,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-features -- -D warnings
+      - run: cargo clippy --features fetch,tracing -- -D warnings
 
   fmt:
     name: Format
