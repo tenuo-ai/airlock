@@ -96,7 +96,6 @@ pub async fn validate_with_options(
     #[cfg(feature = "tracing")]
     tracing::Span::current().record("host", safe_url.host());
 
-
     if let Some(blocked_host) = is_hostname_blocked(safe_url.host()) {
         #[cfg(feature = "tracing")]
         tracing::warn!(host = safe_url.host(), "hostname blocked");

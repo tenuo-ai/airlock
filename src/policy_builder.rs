@@ -56,7 +56,10 @@ impl CustomPolicy {
         // Check explicit blocklist
         for pattern in &self.blocked_hosts {
             if matches_hostname_pattern(&host_lower, pattern) {
-                return Err(format!("hostname {} matches blocked pattern {}", host, pattern));
+                return Err(format!(
+                    "hostname {} matches blocked pattern {}",
+                    host, pattern
+                ));
             }
         }
 
@@ -165,9 +168,13 @@ mod tests {
             .build();
 
         // This private IP is explicitly allowed
-        assert!(policy.is_ip_allowed("192.168.1.50".parse().unwrap()).is_ok());
+        assert!(policy
+            .is_ip_allowed("192.168.1.50".parse().unwrap())
+            .is_ok());
         // Other private IPs still blocked by base policy
-        assert!(policy.is_ip_allowed("192.168.2.1".parse().unwrap()).is_err());
+        assert!(policy
+            .is_ip_allowed("192.168.2.1".parse().unwrap())
+            .is_err());
     }
 
     #[test]
@@ -176,7 +183,9 @@ mod tests {
             .block_host("*.internal.example.com")
             .build();
 
-        assert!(policy.is_hostname_allowed("api.internal.example.com").is_err());
+        assert!(policy
+            .is_hostname_allowed("api.internal.example.com")
+            .is_err());
         assert!(policy.is_hostname_allowed("api.example.com").is_ok());
     }
 
