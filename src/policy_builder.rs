@@ -8,6 +8,32 @@ use crate::blocklist::is_ip_blocked;
 use crate::policy::Policy;
 
 /// A custom policy with user-defined blocklists and allowlists.
+///
+/// Created via [`PolicyBuilder`]. This allows fine-grained control over which
+/// IPs and hostnames are allowed or blocked, beyond the built-in [`Policy`] options.
+///
+/// # Precedence
+///
+/// Allow rules take precedence over block rules:
+/// 1. If IP/hostname matches an allow rule → allowed
+/// 2. If IP/hostname matches a block rule → blocked
+/// 3. Otherwise, fall back to base policy
+///
+/// # Example
+///
+/// ```rust
+/// use url_jail::{PolicyBuilder, Policy};
+///
+/// let policy = PolicyBuilder::new(Policy::AllowPrivate)
+///     .block_cidr("10.0.0.0/8")
+///     .allow_cidr("10.1.0.0/16")  // This takes precedence
+///     .build();
+///
+/// // 10.1.x.x is allowed (matches allow rule)
+/// assert!(policy.is_ip_allowed("10.1.2.3".parse().unwrap()).is_ok());
+/// // 10.2.x.x is blocked (matches block rule, no allow rule)
+/// assert!(policy.is_ip_allowed("10.2.0.1".parse().unwrap()).is_err());
+/// ```
 #[derive(Debug, Clone)]
 pub struct CustomPolicy {
     base: Policy,
@@ -18,7 +44,9 @@ pub struct CustomPolicy {
 }
 
 impl CustomPolicy {
-    /// Check if an IP is allowed by this policy.
+    /// Check if an IP address is allowed by this policy.
+    ///
+    /// Returns `Ok(())` if allowed, `Err(reason)` if blocked.
     pub fn is_ip_allowed(&self, ip: IpAddr) -> Result<(), String> {
         // Check explicit allowlist first
         for cidr in &self.allowed_cidrs {
@@ -43,6 +71,9 @@ impl CustomPolicy {
     }
 
     /// Check if a hostname is allowed by this policy.
+    ///
+    /// Returns `Ok(())` if allowed, `Err(reason)` if blocked.
+    /// Hostname matching is case-insensitive.
     pub fn is_hostname_allowed(&self, host: &str) -> Result<(), String> {
         let host_lower = host.to_lowercase();
 

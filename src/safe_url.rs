@@ -65,31 +65,46 @@ impl SafeUrl {
     }
 
     /// Get the normalized hostname.
+    ///
+    /// The hostname is lowercased and has any trailing dot removed.
+    /// For IPv6 addresses, this includes the brackets (e.g., `[::1]`).
     pub fn host(&self) -> &str {
         &self.host
     }
 
-    /// Get the port, defaulting to 80 for http and 443 for https.
+    /// Get the port number.
+    ///
+    /// Returns the explicit port if specified, otherwise defaults to:
+    /// - 80 for `http://`
+    /// - 443 for `https://`
     pub fn port(&self) -> u16 {
         self.inner.port_or_known_default().unwrap_or(80)
     }
 
-    /// Get the path.
+    /// Get the path component of the URL.
+    ///
+    /// Returns `/` if no path is specified.
     pub fn path(&self) -> &str {
         self.inner.path()
     }
 
-    /// Get the full URL as a string.
+    /// Get the full normalized URL as a string.
+    ///
+    /// This includes scheme, host, port (if non-default), path, query, and fragment.
     pub fn as_str(&self) -> &str {
         self.inner.as_str()
     }
 
     /// Check if the URL uses HTTPS.
+    ///
+    /// Returns `true` for `https://` URLs, `false` for `http://`.
     pub fn is_https(&self) -> bool {
         self.inner.scheme() == "https"
     }
 
-    /// Get the underlying URL.
+    /// Consume self and return the underlying [`url::Url`].
+    ///
+    /// Use this if you need access to the full URL parsing capabilities.
     pub fn into_url(self) -> Url {
         self.inner
     }

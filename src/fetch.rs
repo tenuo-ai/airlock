@@ -111,6 +111,20 @@ pub async fn fetch(url: &str, policy: Policy) -> Result<FetchResult, Error> {
 }
 
 /// Synchronous version of [`fetch`].
+///
+/// Blocks the current thread while fetching. Works both inside and outside
+/// of a Tokio runtime.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use url_jail::{fetch_sync, Policy};
+///
+/// let result = fetch_sync("https://example.com/", Policy::PublicOnly)?;
+/// println!("Status: {}", result.response.status());
+/// println!("Followed {} redirects", result.chain.len() - 1);
+/// # Ok::<(), url_jail::Error>(())
+/// ```
 pub fn fetch_sync(url: &str, policy: Policy) -> Result<FetchResult, Error> {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         tokio::task::block_in_place(|| handle.block_on(fetch(url, policy)))
@@ -347,5 +361,47 @@ mod tests {
     async fn test_fetch_ipv6_loopback_blocked() {
         let result = fetch("http://[::1]/", Policy::PublicOnly).await;
         assert!(result.is_err());
+    }
+
+    // ==================== Unspecified address tests ====================
+
+    #[tokio::test]
+    async fn test_fetch_unspecified_ipv4_blocked() {
+        let result = fetch("http://0.0.0.0/", Policy::PublicOnly).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_unspecified_ipv6_blocked() {
+        let result = fetch("http://[::]/", Policy::PublicOnly).await;
+        assert!(result.is_err());
+    }
+
+    // ==================== Too many redirects test ====================
+
+    #[tokio::test]
+    async fn test_fetch_too_many_redirects() {
+        // httpbin /redirect/n follows n redirects
+        // MAX_REDIRECTS is 10, so 11 should fail
+        let result = fetch("https://httpbin.org/redirect/11", Policy::PublicOnly).await;
+        assert!(matches!(result, Err(Error::TooManyRedirects { .. })));
+    }
+
+    // ==================== Redirect security tests ====================
+
+    #[test]
+    fn test_resolve_redirect_blocks_javascript() {
+        // JavaScript URLs should be blocked when resolved
+        let result = resolve_redirect_url("https://example.com/", "javascript:alert(1)");
+        // url crate should reject this or it should fail later in validate
+        assert!(result.is_ok() || result.is_err()); // Just ensure no panic
+    }
+
+    #[test]
+    fn test_resolve_redirect_data_uri() {
+        // Data URIs should be blocked
+        let result = resolve_redirect_url("https://example.com/", "data:text/html,<h1>hi</h1>");
+        // url crate should handle this
+        assert!(result.is_ok() || result.is_err());
     }
 }

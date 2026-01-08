@@ -39,10 +39,10 @@ pip install url_jail
 
 ```toml
 [dependencies]
-url_jail = "0.2"
+url_jail = "0.1"
 
 # Enable fetch() for redirect chain validation
-url_jail = { version = "0.2", features = ["fetch"] }
+url_jail = { version = "0.1", features = ["fetch"] }
 ```
 
 ## Policies

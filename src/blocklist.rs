@@ -35,6 +35,11 @@ pub fn is_ip_blocked(ip: IpAddr, policy: Policy) -> Option<&'static str> {
 }
 
 fn is_ipv4_blocked(ip: Ipv4Addr, policy: Policy) -> Option<&'static str> {
+    // 0.0.0.0 is the unspecified address - always blocked
+    if ip.is_unspecified() {
+        return Some("unspecified address");
+    }
+
     if ip.is_loopback() {
         return Some("loopback address");
     }
@@ -55,12 +60,37 @@ fn is_ipv4_blocked(ip: Ipv4Addr, policy: Policy) -> Option<&'static str> {
 }
 
 fn is_ipv6_blocked(ip: Ipv6Addr, policy: Policy) -> Option<&'static str> {
+    // :: is the unspecified address - always blocked
+    if ip.is_unspecified() {
+        return Some("unspecified address");
+    }
+
+    // Check loopback FIRST (::1) before any IPv4 embedding checks
+    if ip.is_loopback() {
+        return Some("loopback address");
+    }
+
+    // Check for IPv4-mapped IPv6 (::ffff:x.x.x.x)
     if let Some(ipv4) = ip.to_ipv4_mapped() {
         return is_ipv4_blocked(ipv4, policy);
     }
 
-    if ip.is_loopback() {
-        return Some("loopback address");
+    // Check for IPv4-compatible IPv6 (::x.x.x.x) - deprecated but still works
+    // This is different from mapped - it embeds IPv4 in the last 32 bits
+    // Format: ::0000:0000:0000:0000:0000:0000:XXXX:XXXX where XXXX:XXXX is IPv4
+    // Skip if it's a very small value (like ::1 which is loopback, already handled)
+    let segments = ip.segments();
+    if segments[0..6] == [0, 0, 0, 0, 0, 0] && (segments[6] != 0 || segments[7] > 1) {
+        // Last 32 bits contain IPv4
+        let ipv4 = Ipv4Addr::new(
+            (segments[6] >> 8) as u8,
+            segments[6] as u8,
+            (segments[7] >> 8) as u8,
+            segments[7] as u8,
+        );
+        if !ipv4.is_unspecified() {
+            return is_ipv4_blocked(ipv4, policy);
+        }
     }
 
     // is_unicast_link_local is unstable, so we check manually
@@ -280,5 +310,39 @@ mod tests {
         assert!(is_ip_blocked("127.0.0.1".parse().unwrap(), Policy::AllowPrivate).is_some());
         assert!(is_ip_blocked("127.1.2.3".parse().unwrap(), Policy::AllowPrivate).is_some());
         assert!(is_ip_blocked("127.255.255.255".parse().unwrap(), Policy::AllowPrivate).is_some());
+    }
+
+    // ==================== Unspecified address tests ====================
+
+    #[test]
+    fn test_unspecified_ipv4_blocked() {
+        // 0.0.0.0 is the unspecified address - always blocked
+        assert!(is_ip_blocked("0.0.0.0".parse().unwrap(), Policy::PublicOnly).is_some());
+        assert!(is_ip_blocked("0.0.0.0".parse().unwrap(), Policy::AllowPrivate).is_some());
+    }
+
+    #[test]
+    fn test_unspecified_ipv6_blocked() {
+        // :: is the unspecified address - always blocked
+        assert!(is_ip_blocked("::".parse().unwrap(), Policy::PublicOnly).is_some());
+        assert!(is_ip_blocked("::".parse().unwrap(), Policy::AllowPrivate).is_some());
+    }
+
+    // ==================== IPv4-compatible IPv6 tests ====================
+
+    #[test]
+    fn test_ipv4_compatible_ipv6_loopback() {
+        // ::127.0.0.1 - deprecated IPv4-compatible format (different from mapped)
+        // This format embeds IPv4 in last 32 bits with leading zeros
+        let compat: IpAddr = "::127.0.0.1".parse().unwrap();
+        // Note: Rust parses this as ::7f00:1, check if we catch it
+        assert!(is_ip_blocked(compat, Policy::PublicOnly).is_some());
+    }
+
+    #[test]
+    fn test_ipv4_compatible_ipv6_metadata() {
+        // ::169.254.169.254 - metadata via IPv4-compatible
+        let compat: IpAddr = "::169.254.169.254".parse().unwrap();
+        assert!(is_ip_blocked(compat, Policy::PublicOnly).is_some());
     }
 }

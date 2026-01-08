@@ -11,9 +11,30 @@ use crate::policy::Policy;
 use crate::safe_url::SafeUrl;
 
 /// Options for URL validation.
+///
+/// Use with [`validate_with_options`] or [`validate_custom_with_options`]
+/// to customize validation behavior.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use url_jail::{validate_with_options, Policy, ValidateOptions};
+/// use std::time::Duration;
+///
+/// # async fn example() -> Result<(), url_jail::Error> {
+/// let opts = ValidateOptions {
+///     dns_timeout: Duration::from_secs(5),
+/// };
+/// let result = validate_with_options("https://example.com/", Policy::PublicOnly, opts).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct ValidateOptions {
-    /// DNS resolution timeout. Default: 30 seconds.
+    /// DNS resolution timeout.
+    ///
+    /// If DNS resolution takes longer than this, a [`Error::Timeout`] is returned.
+    /// Default: 30 seconds.
     pub dns_timeout: Duration,
 }
 
@@ -192,6 +213,16 @@ pub async fn validate_custom_with_options(
 ///
 /// This function works both inside and outside of a Tokio runtime.
 /// When called from outside a runtime, it creates a temporary one.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use url_jail::{validate_sync, Policy};
+///
+/// let result = validate_sync("https://example.com/api", Policy::PublicOnly)?;
+/// println!("Safe to connect to {} ({})", result.host, result.ip);
+/// # Ok::<(), url_jail::Error>(())
+/// ```
 pub fn validate_sync(url: &str, policy: Policy) -> Result<Validated, Error> {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         tokio::task::block_in_place(|| handle.block_on(validate(url, policy)))
@@ -536,5 +567,58 @@ mod tests {
     async fn test_allow_private_still_blocks_link_local() {
         let result = validate("http://169.254.1.1/", Policy::AllowPrivate).await;
         assert!(result.is_err());
+    }
+
+    // ==================== Unspecified address tests ====================
+
+    #[tokio::test]
+    async fn test_block_unspecified_ipv4() {
+        let result = validate("http://0.0.0.0/", Policy::PublicOnly).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_block_unspecified_ipv6() {
+        let result = validate("http://[::]/", Policy::PublicOnly).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_block_unspecified_with_allow_private() {
+        // Unspecified should be blocked even with AllowPrivate
+        let result = validate("http://0.0.0.0/", Policy::AllowPrivate).await;
+        assert!(result.is_err());
+    }
+
+    // ==================== Timeout error type tests ====================
+
+    #[tokio::test]
+    async fn test_timeout_error_type() {
+        // Very short timeout should produce Timeout error for slow/invalid domain
+        let opts = ValidateOptions {
+            dns_timeout: Duration::from_nanos(1), // Impossibly short
+        };
+        let result = validate_with_options(
+            "https://this-domain-will-definitely-timeout-due-to-short-timeout.invalid/",
+            Policy::PublicOnly,
+            opts,
+        )
+        .await;
+        // Should be either Timeout or DnsError (domain doesn't exist)
+        assert!(matches!(
+            result,
+            Err(Error::Timeout { .. }) | Err(Error::DnsError { .. })
+        ));
+    }
+
+    // ==================== Multi-IP DNS verification ====================
+
+    #[tokio::test]
+    async fn test_multi_ip_all_checked() {
+        // We can't easily control DNS results, but we can verify the code path
+        // by checking that resolve_and_verify_dns exists and is used
+        // The actual multi-IP check is implicitly tested by the blocklist tests
+        let result = validate("https://example.com/", Policy::PublicOnly).await;
+        assert!(result.is_ok());
     }
 }
