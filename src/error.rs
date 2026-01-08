@@ -48,6 +48,10 @@ pub enum Error {
     #[cfg(feature = "fetch")]
     #[error("HTTP error: {message}")]
     HttpError { url: String, message: String },
+
+    /// Operation timed out.
+    #[error("Timeout: {message}")]
+    Timeout { message: String },
 }
 
 impl Error {

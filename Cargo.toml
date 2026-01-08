@@ -16,11 +16,12 @@ url = "2"
 ipnet = "2"
 idna = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["net", "rt"] }
+tokio = { version = "1", features = ["net", "rt", "time"] }
 hickory-resolver = "0.25"
 pyo3 = { version = "0.27", features = ["extension-module"], optional = true }
 pyo3-async-runtimes = { version = "0.27", features = ["tokio-runtime"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
+tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
@@ -29,3 +30,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 default = []
 python = ["pyo3", "pyo3-async-runtimes"]
 fetch = ["reqwest"]
+tracing = ["dep:tracing"]

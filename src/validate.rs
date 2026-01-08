@@ -1,6 +1,7 @@
 //! URL validation with DNS resolution.
 
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 use hickory_resolver::TokioResolver;
 
@@ -8,6 +9,21 @@ use crate::blocklist::{is_hostname_blocked, is_ip_blocked};
 use crate::error::Error;
 use crate::policy::Policy;
 use crate::safe_url::SafeUrl;
+
+/// Options for URL validation.
+#[derive(Debug, Clone)]
+pub struct ValidateOptions {
+    /// DNS resolution timeout. Default: 30 seconds.
+    pub dns_timeout: Duration,
+}
+
+impl Default for ValidateOptions {
+    fn default() -> Self {
+        Self {
+            dns_timeout: Duration::from_secs(30),
+        }
+    }
+}
 
 /// Result of successful URL validation.
 #[derive(Debug, Clone)]
@@ -60,12 +76,30 @@ impl Validated {
 /// Returns an error if:
 /// - The URL is malformed or uses a forbidden scheme
 /// - The hostname is in the blocklist
-/// - DNS resolution fails
+/// - DNS resolution fails or times out
 /// - The resolved IP is blocked by the policy
 pub async fn validate(url: &str, policy: Policy) -> Result<Validated, Error> {
+    validate_with_options(url, policy, ValidateOptions::default()).await
+}
+
+/// Validate a URL with custom options.
+///
+/// See [`validate`] for details.
+#[cfg_attr(feature = "tracing", tracing::instrument(skip(options), fields(host)))]
+pub async fn validate_with_options(
+    url: &str,
+    policy: Policy,
+    options: ValidateOptions,
+) -> Result<Validated, Error> {
     let safe_url = SafeUrl::parse(url)?;
 
+    #[cfg(feature = "tracing")]
+    tracing::Span::current().record("host", safe_url.host());
+
+
     if let Some(blocked_host) = is_hostname_blocked(safe_url.host()) {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(host = safe_url.host(), "hostname blocked");
         return Err(Error::hostname_blocked(
             url,
             safe_url.host(),
@@ -73,11 +107,16 @@ pub async fn validate(url: &str, policy: Policy) -> Result<Validated, Error> {
         ));
     }
 
-    let ip = resolve_dns(safe_url.host()).await?;
+    let ip = resolve_dns_with_timeout(safe_url.host(), options.dns_timeout).await?;
 
     if let Some(reason) = is_ip_blocked(ip, policy) {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(%ip, %reason, "IP blocked");
         return Err(Error::ssrf_blocked(url, ip, reason));
     }
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(%ip, host = safe_url.host(), "URL validated successfully");
 
     Ok(Validated {
         ip,
@@ -105,26 +144,34 @@ pub fn validate_sync(url: &str, policy: Policy) -> Result<Validated, Error> {
     }
 }
 
-/// Resolve a hostname to an IP address.
-async fn resolve_dns(host: &str) -> Result<IpAddr, Error> {
+/// Resolve a hostname to an IP address with timeout.
+async fn resolve_dns_with_timeout(host: &str, timeout: Duration) -> Result<IpAddr, Error> {
     let host_str = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = host_str.parse::<IpAddr>() {
         return Ok(ip);
     }
 
-    let resolver = TokioResolver::builder_tokio()
-        .map_err(|e| Error::dns_error(host, e.to_string()))?
-        .build();
+    let resolve_future = async {
+        let resolver = TokioResolver::builder_tokio()
+            .map_err(|e| Error::dns_error(host, e.to_string()))?
+            .build();
 
-    let response = resolver
-        .lookup_ip(host)
+        let response = resolver
+            .lookup_ip(host)
+            .await
+            .map_err(|e| Error::dns_error(host, e.to_string()))?;
+
+        response
+            .iter()
+            .next()
+            .ok_or_else(|| Error::dns_error(host, "no IP addresses found"))
+    };
+
+    tokio::time::timeout(timeout, resolve_future)
         .await
-        .map_err(|e| Error::dns_error(host, e.to_string()))?;
-
-    response
-        .iter()
-        .next()
-        .ok_or_else(|| Error::dns_error(host, "no IP addresses found"))
+        .map_err(|_| Error::Timeout {
+            message: format!("DNS resolution for {} timed out after {:?}", host, timeout),
+        })?
 }
 
 #[cfg(test)]

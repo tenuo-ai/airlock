@@ -86,6 +86,7 @@ fn to_py_err(e: Error) -> PyErr {
         Error::HttpError { url, message } => {
             UrlJailError::new_err(format!("{} - HTTP error: {}", url, message))
         }
+        Error::Timeout { message } => UrlJailError::new_err(format!("Timeout: {}", message)),
     }
 }
 
