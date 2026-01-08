@@ -21,6 +21,14 @@ from url_jail import get_sync
 body = get_sync(user_url)  # Validates URL and all redirects
 ```
 
+**Python (with existing HTTP client):**
+```python
+from url_jail.adapters import safe_session
+
+s = safe_session()
+response = s.get(user_url)  # SSRF-safe requests.Session
+```
+
 **Rust:**
 ```rust
 use url_jail::{validate, Policy};
@@ -39,14 +47,17 @@ let response = client.get(&v.url).send().await?;
 
 ```bash
 pip install url_jail
+
+# With HTTP client adapters
+pip install url_jail[requests]  # or [httpx], [aiohttp], [all]
 ```
 
 ```toml
 [dependencies]
-url_jail = "0.1"
+url_jail = "0.2"
 
 # Enable fetch() for redirect chain validation
-url_jail = { version = "0.1", features = ["fetch"] }
+url_jail = { version = "0.2", features = ["fetch"] }
 ```
 
 ## Policies
@@ -55,6 +66,31 @@ url_jail = { version = "0.1", features = ["fetch"] }
 |--------|--------|--------|
 | `PublicOnly` | Public IPs only | Private, loopback, link-local, metadata |
 | `AllowPrivate` | Private + public | Loopback, metadata (for internal services) |
+
+## HTTP Client Adapters (Python)
+
+```python
+# requests
+from url_jail.adapters import safe_session
+s = safe_session()
+response = s.get(user_url)
+
+# httpx (sync)
+from url_jail.adapters import safe_httpx_client
+client = safe_httpx_client()
+response = client.get(user_url)
+
+# httpx (async)
+from url_jail.adapters import safe_httpx_async_client
+async with safe_httpx_async_client() as client:
+    response = await client.get(user_url)
+
+# aiohttp
+from url_jail.adapters import safe_aiohttp_session
+async with safe_aiohttp_session() as session:
+    async with session.get(user_url) as response:
+        body = await response.text()
+```
 
 ## Advanced: Custom Blocklist
 
@@ -86,3 +122,4 @@ let policy = PolicyBuilder::new(Policy::AllowPrivate)
 ## License
 
 MIT OR Apache-2.0
+

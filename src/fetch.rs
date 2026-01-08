@@ -2,6 +2,32 @@
 //!
 //! This module provides functions to fetch URLs while validating each redirect
 //! in the chain against the SSRF policy.
+//!
+//! ## Design Principles
+//!
+//! **Validation is mandatory and cannot be bypassed.**
+//!
+//! - Every URL (including redirects) is validated via [`validate()`](crate::validate)
+//!   before any HTTP request is made
+//! - The validated IP is used directly for the connection, preventing DNS rebinding
+//! - There is no way to skip validation or override the policy
+//!
+//! ## What This Module Does NOT Do
+//!
+//! - **No retry logic**: Failed requests fail immediately
+//! - **No fallback behavior**: If validation fails, no request is made
+//! - **No protocol downgrade**: HTTPS URLs never fall back to HTTP
+//! - **No silent URL rewriting**: URLs are fetched exactly as validated
+//!
+//! ## Separation of Concerns
+//!
+//! Validation and execution are separate, irreversible steps:
+//!
+//! 1. **Validate**: URL is parsed, DNS is resolved, IP is checked against policy
+//! 2. **Execute**: HTTP request is made to the validated IP
+//!
+//! Once validation fails, execution never occurs. Once execution begins,
+//! validation cannot be retroactively bypassed.
 
 use std::net::SocketAddr;
 

@@ -1,4 +1,34 @@
 //! Custom policy builder for advanced SSRF protection.
+//!
+//! ## Design Principles
+//!
+//! Custom policies follow the same principles as built-in policies:
+//!
+//! - **Pure validation constraints**: Based solely on IP addresses and hostnames
+//! - **No user identity**: Policies don't know who is making the request
+//! - **No context**: Policies don't consider headers, methods, or request bodies
+//! - **No time**: Policies don't change based on time of day or rate limits
+//! - **No delegation**: Policies can't defer to external services
+//!
+//! ## Immutability
+//!
+//! Once built via [`PolicyBuilder::build()`], a [`CustomPolicy`] cannot be modified.
+//! The builder consumes `self` on each method call, preventing accidental reuse.
+//!
+//! ## Security Considerations
+//!
+//! **Be careful with `allow_*` methods.** These override the base policy's blocks:
+//!
+//! ```rust
+//! use url_jail::{PolicyBuilder, Policy};
+//!
+//! // DANGEROUS: This allows localhost access!
+//! let bad_policy = PolicyBuilder::new(Policy::PublicOnly)
+//!     .allow_cidr("127.0.0.0/8")  // Defeats SSRF protection!
+//!     .build();
+//! ```
+//!
+//! Only use `allow_*` methods when you have a specific, audited use case.
 
 use std::net::IpAddr;
 
@@ -12,12 +42,24 @@ use crate::policy::Policy;
 /// Created via [`PolicyBuilder`]. This allows fine-grained control over which
 /// IPs and hostnames are allowed or blocked, beyond the built-in [`Policy`] options.
 ///
+/// # Immutability
+///
+/// Once created, a `CustomPolicy` cannot be modified. All fields are private
+/// and there are no `&mut self` methods.
+///
 /// # Precedence
 ///
 /// Allow rules take precedence over block rules:
 /// 1. If IP/hostname matches an allow rule → allowed
 /// 2. If IP/hostname matches a block rule → blocked
 /// 3. Otherwise, fall back to base policy
+///
+/// # Scope
+///
+/// Like [`Policy`], custom policies are pure validation constraints:
+/// - No user identity or authentication
+/// - No request context
+/// - No time-based logic
 ///
 /// # Example
 ///

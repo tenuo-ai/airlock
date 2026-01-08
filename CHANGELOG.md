@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2024-01-08
+## [0.2.0] - 2026-01-08
+
+### Added
+
+- Python HTTP client adapters
+  - `safe_session()` - SSRF-safe requests.Session
+  - `safe_httpx_client()` / `safe_httpx_async_client()` - httpx adapters
+  - `safe_aiohttp_session()` - aiohttp adapter
+  - Optional dependencies: `url_jail[requests]`, `[httpx]`, `[aiohttp]`, `[all]`
+
+- Complete Python exception hierarchy (1:1 with Rust)
+  - `HostnameBlocked` - hostname pattern blocked
+  - `RedirectBlocked` - redirect to blocked URL
+  - `TooManyRedirects` - max redirects exceeded
+  - `HttpError` - HTTP-level errors
+  - `Timeout` - operation timeout
+
+- Security improvements
+  - Block unspecified addresses (`0.0.0.0`, `::`)
+  - Block IPv4-compatible IPv6 (`::127.0.0.1`)
+
+### Changed
+
+- Exception messages now use structured format: `url (target) - reason`
+
+## [0.1.0] - 2026-01-06
 
 ### Added
 
@@ -67,6 +92,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All DNS-returned IPs validated (not just first)
 - Redirect chain validation with `fetch()`
 
-[Unreleased]: https://github.com/tenuo-ai/url_jail/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tenuo-ai/url_jail/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tenuo-ai/url_jail/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tenuo-ai/url_jail/releases/tag/v0.1.0
-
