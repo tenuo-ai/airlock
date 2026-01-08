@@ -1,15 +1,17 @@
 """Type stubs for url_jail - SSRF-safe URL validation for Python.
 
-This module provides SSRF (Server-Side Request Forgery) protection by validating
+This module helps mitigate SSRF (Server-Side Request Forgery) by validating
 URLs and their resolved IP addresses before making HTTP requests.
 
-Helps prevent vulnerabilities like:
+Helps mitigate vulnerabilities similar to:
 - CVE-2024-0243: LangChain RecursiveUrlLoader SSRF
 - CVE-2025-2828: LangChain RequestsToolkit SSRF
 
+Note: This library has not undergone a formal security audit.
+
 Example:
     >>> from url_jail import get_sync, Policy
-    >>> body = get_sync("https://example.com/api")  # Safe!
+    >>> body = get_sync("https://example.com/api")  # Validates URL and redirects
     >>> body = get_sync(url, Policy.ALLOW_PRIVATE)  # Allow private IPs
 """
 
@@ -171,10 +173,20 @@ class UrlJailError(Exception):
     ...
 
 class SsrfBlocked(UrlJailError):
-    """IP address or hostname is blocked by policy.
+    """IP address is blocked by policy.
     
-    Raised when the URL points to a blocked IP (loopback, private, metadata)
-    or a blocked hostname (cloud metadata endpoints).
+    Raised when the URL resolves to a blocked IP (loopback, private, metadata).
+    
+    Message format: "url (ip) - reason"
+    """
+    ...
+
+class HostnameBlocked(UrlJailError):
+    """Hostname is blocked by policy.
+    
+    Raised when the URL's hostname matches a blocked pattern (e.g., metadata endpoints).
+    
+    Message format: "url (hostname) - reason"
     """
     ...
 
@@ -186,6 +198,8 @@ class InvalidUrl(UrlJailError):
     - Scheme is not http or https
     - URL contains userinfo (user:pass@)
     - IP is encoded in non-standard format (octal, hex, decimal)
+    
+    Message format: "url - reason"
     """
     ...
 
@@ -193,6 +207,42 @@ class DnsError(UrlJailError):
     """DNS resolution failed.
     
     Raised when the hostname cannot be resolved to an IP address.
+    
+    Message format: "hostname - message"
+    """
+    ...
+
+class Timeout(UrlJailError):
+    """Operation timed out.
+    
+    Raised when DNS resolution or HTTP request exceeds the configured timeout.
+    """
+    ...
+
+class RedirectBlocked(UrlJailError):
+    """A redirect pointed to a blocked URL.
+    
+    Raised during fetch() when following a redirect that would go to a blocked IP/host.
+    
+    Message format: "original_url -> redirect_url - reason"
+    """
+    ...
+
+class TooManyRedirects(UrlJailError):
+    """Too many redirects.
+    
+    Raised when fetch() exceeds the maximum redirect count (default: 10).
+    
+    Message format: "url - max N redirects"
+    """
+    ...
+
+class HttpError(UrlJailError):
+    """HTTP request failed.
+    
+    Raised for HTTP-level errors during fetch() (connection refused, SSL errors, etc.).
+    
+    Message format: "url - message"
     """
     ...
 

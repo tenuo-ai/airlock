@@ -33,8 +33,8 @@ class TestRequestsAdapter:
 
     def test_blocks_metadata(self, safe_session):
         """Should block metadata endpoints."""
-        from url_jail import SsrfBlocked
-        with pytest.raises(SsrfBlocked):
+        from url_jail import SsrfBlocked, HostnameBlocked
+        with pytest.raises((SsrfBlocked, HostnameBlocked)):
             safe_session.get("http://169.254.169.254/")
 
     def test_blocks_private_ip(self, safe_session):
@@ -79,8 +79,8 @@ class TestHttpxAdapter:
 
     def test_blocks_metadata(self, safe_client):
         """Should block metadata endpoints."""
-        from url_jail import SsrfBlocked
-        with pytest.raises(SsrfBlocked):
+        from url_jail import SsrfBlocked, HostnameBlocked
+        with pytest.raises((SsrfBlocked, HostnameBlocked)):
             safe_client.get("http://169.254.169.254/")
         safe_client.close()
 

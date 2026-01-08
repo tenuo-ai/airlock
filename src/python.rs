@@ -6,10 +6,24 @@ use pyo3::types::PyModule;
 
 use crate::{Error, Policy as RustPolicy, Validated as RustValidated};
 
+// Base exception
 pyo3::create_exception!(url_jail, UrlJailError, PyException);
+
+// SSRF-related exceptions
 pyo3::create_exception!(url_jail, SsrfBlocked, UrlJailError);
+pyo3::create_exception!(url_jail, HostnameBlocked, UrlJailError);
+
+// URL/input errors
 pyo3::create_exception!(url_jail, InvalidUrl, UrlJailError);
 pyo3::create_exception!(url_jail, DnsError, UrlJailError);
+
+// Timeout error
+pyo3::create_exception!(url_jail, Timeout, UrlJailError);
+
+// Fetch-related errors (always defined for API consistency)
+pyo3::create_exception!(url_jail, RedirectBlocked, UrlJailError);
+pyo3::create_exception!(url_jail, TooManyRedirects, UrlJailError);
+pyo3::create_exception!(url_jail, HttpError, UrlJailError);
 
 /// Policy enum for Python.
 #[pyclass(name = "Policy", eq, eq_int)]
@@ -119,34 +133,35 @@ impl PyPolicyBuilder {
 }
 
 /// Convert Rust error to Python exception.
+/// Each error maps to a specific exception type with structured message.
 fn to_py_err(e: Error) -> PyErr {
     match e {
         Error::SsrfBlocked { url, ip, reason } => {
+            // Format: "url (ip) - reason" for easy parsing
             SsrfBlocked::new_err(format!("{} ({}) - {}", url, ip, reason))
         }
         Error::HostnameBlocked { url, host, reason } => {
-            SsrfBlocked::new_err(format!("{} ({}) - {}", url, host, reason))
+            // Use dedicated HostnameBlocked exception
+            HostnameBlocked::new_err(format!("{} ({}) - {}", url, host, reason))
         }
         Error::InvalidUrl { url, reason } => InvalidUrl::new_err(format!("{} - {}", url, reason)),
         Error::DnsError { host, message } => DnsError::new_err(format!("{} - {}", host, message)),
+        Error::Timeout { message } => Timeout::new_err(message),
         #[cfg(feature = "fetch")]
         Error::RedirectBlocked {
             original_url,
             redirect_url,
             reason,
-        } => SsrfBlocked::new_err(format!(
-            "{} redirected to blocked URL {} - {}",
-            original_url, redirect_url, reason
-        )),
+        } => {
+            // Use dedicated RedirectBlocked exception
+            RedirectBlocked::new_err(format!("{} -> {} - {}", original_url, redirect_url, reason))
+        }
         #[cfg(feature = "fetch")]
         Error::TooManyRedirects { url, max } => {
-            UrlJailError::new_err(format!("{} - too many redirects (max {})", url, max))
+            TooManyRedirects::new_err(format!("{} - max {} redirects", url, max))
         }
         #[cfg(feature = "fetch")]
-        Error::HttpError { url, message } => {
-            UrlJailError::new_err(format!("{} - HTTP error: {}", url, message))
-        }
-        Error::Timeout { message } => UrlJailError::new_err(format!("Timeout: {}", message)),
+        Error::HttpError { url, message } => HttpError::new_err(format!("{} - {}", url, message)),
     }
 }
 
@@ -244,10 +259,24 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(py_get_sync, m)?)?;
     }
 
+    // Base exception
     m.add("UrlJailError", m.py().get_type::<UrlJailError>())?;
+
+    // SSRF exceptions
     m.add("SsrfBlocked", m.py().get_type::<SsrfBlocked>())?;
+    m.add("HostnameBlocked", m.py().get_type::<HostnameBlocked>())?;
+
+    // Input/validation errors
     m.add("InvalidUrl", m.py().get_type::<InvalidUrl>())?;
     m.add("DnsError", m.py().get_type::<DnsError>())?;
+
+    // Timeout
+    m.add("Timeout", m.py().get_type::<Timeout>())?;
+
+    // Fetch-related errors (always exposed for API consistency)
+    m.add("RedirectBlocked", m.py().get_type::<RedirectBlocked>())?;
+    m.add("TooManyRedirects", m.py().get_type::<TooManyRedirects>())?;
+    m.add("HttpError", m.py().get_type::<HttpError>())?;
 
     Ok(())
 }

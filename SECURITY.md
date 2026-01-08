@@ -62,27 +62,30 @@ For LangChain specifically, wrap URL fetching with `url_jail` validation before 
 
 ## Security Model
 
-`url_jail` protects against Server-Side Request Forgery (SSRF) attacks by:
+`url_jail` aims to reduce SSRF attack surface by validating URLs and resolved IPs:
 
-### What We Protect Against
+### What We Help Protect Against
 
-| Threat | Protection |
+| Threat | Mitigation |
 |--------|------------|
-| Cloud metadata theft | Block `169.254.169.254`, `fd00:ec2::254`, `100.100.100.200` |
-| Internal network scanning | Block private IPs with `PublicOnly` policy |
-| Localhost access | Always block `127.0.0.0/8`, `::1` |
-| DNS rebinding | Return verified IP for connection |
-| Redirect bypass | `fetch()` validates each hop |
-| IP encoding tricks | Reject octal, hex, decimal, short-form |
-| IPv6 bypass | Handle IPv4-mapped IPv6, link-local, ULA |
+| Cloud metadata theft | Blocks known metadata IPs: `169.254.169.254`, `fd00:ec2::254`, `100.100.100.200` |
+| Internal network scanning | Blocks private IPs with `PublicOnly` policy |
+| Localhost access | Blocks `127.0.0.0/8`, `::1` |
+| DNS rebinding | Returns verified IP (user must use it for connection) |
+| Redirect bypass | `fetch()` validates each hop (when used) |
+| IP encoding tricks | Rejects octal, hex, decimal, short-form encodings |
+| IPv6 bypass | Handles IPv4-mapped IPv6, link-local, ULA |
 
-### What We Do NOT Protect Against
+### Limitations (What We Do NOT Protect Against)
 
-- **Application-layer vulnerabilities**: We validate URLs, not request content
-- **Time-of-check/time-of-use**: Connect immediately after validation
-- **DNS cache poisoning**: Out of scope (use DNSSEC)
-- **Non-HTTP protocols**: Only `http://` and `https://` are supported
-- **Malicious response content**: We don't inspect response bodies
+- **Time-of-check/time-of-use (TOCTOU)**: If you don't use the returned IP immediately, DNS could change. Always connect right after validation.
+- **DNS rebinding (if misused)**: Protection only works if you use `Validated.ip` for the connection, not a second DNS lookup.
+- **Application-layer vulnerabilities**: We validate URLs, not request content or headers.
+- **DNS cache poisoning**: Out of scope—use DNSSEC at the resolver level.
+- **Non-HTTP protocols**: Only `http://` and `https://` schemes are validated.
+- **Malicious response content**: We don't inspect response bodies.
+- **New/unknown metadata endpoints**: We block known endpoints; new cloud providers may have unknown ones.
+- **Side-channel attacks**: Timing or error-based information leakage is not addressed.
 
 ### Best Practices
 

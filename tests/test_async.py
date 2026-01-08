@@ -35,9 +35,9 @@ class TestValidateAsync:
     @pytest.mark.asyncio
     async def test_validate_blocks_metadata(self):
         """Metadata endpoints should be blocked."""
-        from url_jail import validate, Policy, SsrfBlocked
+        from url_jail import validate, Policy, SsrfBlocked, HostnameBlocked
         
-        with pytest.raises(SsrfBlocked):
+        with pytest.raises((SsrfBlocked, HostnameBlocked)):
             await validate("http://169.254.169.254/", Policy.PUBLIC_ONLY)
 
 
@@ -89,8 +89,8 @@ class TestGetSync:
     def test_get_sync_blocks_metadata(self):
         """Should block metadata."""
         try:
-            from url_jail import get_sync, SsrfBlocked
-            with pytest.raises(SsrfBlocked):
+            from url_jail import get_sync, SsrfBlocked, HostnameBlocked
+            with pytest.raises((SsrfBlocked, HostnameBlocked)):
                 get_sync("http://169.254.169.254/")
         except ImportError:
             pytest.skip("fetch feature not enabled")

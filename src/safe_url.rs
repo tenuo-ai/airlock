@@ -1,4 +1,31 @@
 //! Safe URL parsing and normalization.
+//!
+//! This module handles URL parsing and applies security-focused normalization
+//! before DNS resolution occurs.
+//!
+//! ## Normalization Rules
+//!
+//! | Component | Normalization | Notes |
+//! |-----------|---------------|-------|
+//! | Scheme | Validated | Only `http` and `https` allowed |
+//! | Hostname | Lowercased, trailing dot removed | Case-insensitive matching |
+//! | Port | Defaults applied | 80 for http, 443 for https |
+//! | Userinfo | Rejected | `user:pass@` not allowed |
+//! | Path | **Not normalized** | Preserved exactly as provided |
+//! | Query | **Not normalized** | Preserved exactly as provided |
+//! | Fragment | **Not normalized** | Preserved exactly as provided |
+//!
+//! ## Internationalized Domain Names (IDN)
+//!
+//! Punycode/IDNA handling is delegated to the [`url`](https://crates.io/crates/url)
+//! crate, which implements IDNA 2008 via the [`idna`](https://crates.io/crates/idna)
+//! crate. Unicode hostnames are converted to ASCII-compatible encoding.
+//!
+//! ## What This Module Does NOT Do
+//!
+//! - Path traversal prevention (use [`path_jail`](https://crates.io/crates/path_jail))
+//! - Query parameter validation
+//! - Content-type validation
 
 use url::Url;
 
@@ -9,6 +36,17 @@ use crate::Error;
 /// This struct represents a URL after parsing and normalization, but before
 /// DNS resolution and IP validation. Use [`validate`](crate::validate) to
 /// perform the full validation including DNS resolution.
+///
+/// ## What's Normalized
+///
+/// - Hostname: lowercased, trailing dot removed
+/// - Port: defaults to 80 (http) or 443 (https)
+/// - Scheme: validated to be http/https only
+///
+/// ## What's NOT Normalized
+///
+/// - Path, query, and fragment are preserved exactly as provided
+/// - No path traversal detection (e.g., `/../` sequences are kept)
 #[derive(Debug, Clone)]
 pub struct SafeUrl {
     inner: Url,

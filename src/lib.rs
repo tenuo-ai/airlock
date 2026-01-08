@@ -2,13 +2,15 @@
 //!
 //! SSRF-safe URL validation for Rust and Python.
 //!
-//! `url_jail` validates URLs and resolved IPs to prevent Server-Side Request Forgery (SSRF).
-//! Like [`path_jail`](https://crates.io/crates/path_jail) prevents path traversal, `url_jail`
-//! prevents SSRF attacks with a minimal, secure-by-default API.
+//! `url_jail` validates URLs and resolved IPs to help mitigate Server-Side Request Forgery (SSRF).
+//! Like [`path_jail`](https://crates.io/crates/path_jail) helps prevent path traversal, `url_jail`
+//! reduces SSRF attack surface with a secure-by-default API.
 //!
-//! This library helps prevent vulnerabilities like:
+//! This library helps mitigate vulnerabilities similar to:
 //! - **CVE-2024-0243**: LangChain RecursiveUrlLoader SSRF (CVSS 8.6)
 //! - **CVE-2025-2828**: LangChain RequestsToolkit SSRF (CVSS 9.1)
+//!
+//! > **Note**: This library has not undergone a formal security audit.
 //!
 //! ## The Problem
 //!
@@ -33,7 +35,7 @@
 //! ## Using with reqwest
 //!
 //! The returned [`Validated`] struct contains the verified IP address. Use it with
-//! reqwest's resolver override to prevent DNS rebinding attacks:
+//! reqwest's resolver override to avoid a second DNS lookup (which could return a different IP):
 //!
 //! ```rust,ignore
 //! use url_jail::{validate, Policy};
@@ -134,10 +136,15 @@
 //!
 //! ## Security Considerations
 //!
-//! - **DNS Rebinding**: Use the returned `ip` field when connecting, not DNS again
-//! - **Redirects**: Use `fetch()` to validate each redirect, or handle manually
-//! - **All IPs Checked**: If DNS returns multiple IPs, ALL are validated
-//! - **Time-of-check/Time-of-use**: Connect immediately after validation
+//! **Important**: This library reduces attack surface but is not a complete SSRF solution.
+//!
+//! - **Use the returned IP**: You MUST connect to `Validated.ip`, not perform another DNS lookup
+//! - **Connect immediately**: Time-of-check/time-of-use gaps allow DNS to change
+//! - **Validate redirects**: Use `fetch()` to validate each redirect, or handle manually
+//! - **All IPs checked**: If DNS returns multiple IPs, ALL are validated before allowing
+//! - **Known endpoints only**: We block known cloud metadata IPs; unknown endpoints may exist
+//!
+//! See [SECURITY.md](https://github.com/tenuo-ai/url_jail/blob/main/SECURITY.md) for full details.
 
 mod blocklist;
 mod error;

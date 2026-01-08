@@ -13,6 +13,7 @@ from url_jail import (
     Validated,
     UrlJailError,
     SsrfBlocked,
+    HostnameBlocked,
     InvalidUrl,
     DnsError,
 )
@@ -62,17 +63,18 @@ class TestValidateSync:
 
     def test_blocks_metadata_endpoint(self):
         """Cloud metadata endpoints should always be blocked."""
-        with pytest.raises(SsrfBlocked):
+        # Can be SsrfBlocked (IP) or HostnameBlocked (pattern)
+        with pytest.raises((SsrfBlocked, HostnameBlocked)):
             validate_sync("http://169.254.169.254/", Policy.PUBLIC_ONLY)
 
     def test_blocks_metadata_with_allow_private(self):
         """Metadata should be blocked even with ALLOW_PRIVATE."""
-        with pytest.raises(SsrfBlocked):
+        with pytest.raises((SsrfBlocked, HostnameBlocked)):
             validate_sync("http://169.254.169.254/", Policy.ALLOW_PRIVATE)
 
     def test_blocks_metadata_hostname(self):
         """Metadata hostnames should be blocked."""
-        with pytest.raises((SsrfBlocked, UrlJailError)):
+        with pytest.raises((HostnameBlocked, UrlJailError)):
             validate_sync("http://metadata.google.internal/", Policy.PUBLIC_ONLY)
 
     def test_blocks_ipv6_loopback(self):
