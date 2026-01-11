@@ -90,6 +90,14 @@ The `RequestsToolkit` component lacked restrictions on remote addresses, allowin
 
 **How url_jail helps mitigate this**: The `PublicOnly` policy (default) blocks private and internal IP ranges. IP encoding tricks (octal, hex, decimal) that bypass naive string-based filters are detected and rejected.
 
+### CVE-2025-61784: LlamaFactory Chat API SSRF
+
+**Severity**: High (CVSS 7.6-8.1)
+
+The LlamaFactory chat API (`/v1/chat/completions`) fetched user-provided image/video URLs without validating the resolved IP address. The code checked if input "looked like a URL" but the HTTP client connected to whatever IP the DNS returned, including internal metadata services.
+
+**How url_jail helps mitigate this**: `url_jail` validates URLs *after* DNS resolution, ensuring the resolved IP is not in a blocked range (private, loopback, metadata). This closes the gap between "looks like a valid URL" and "connects to a safe IP."
+
 ### Example Usage
 
 ```python
@@ -100,9 +108,10 @@ from url_jail import get_sync
 body = get_sync(user_url)  # Validates URL and all redirects
 ```
 
-For LangChain specifically, wrap URL fetching with `url_jail` validation before passing to loaders or toolkits.
+For LLM frameworks, wrap URL fetching with `url_jail` validation before passing to loaders, toolkits, or multimodal handlers.
 
-**Note**: `url_jail` is not a complete fix for these CVEs. Those require updates to LangChain itself. However, `url_jail` provides defense-in-depth against the same attack patterns.
+**Note**: `url_jail` is not a complete fix for these CVEs. Those require updates to the affected frameworks. However, `url_jail` provides defense-in-depth against the same attack patterns.
+
 
 ## Security Model
 
