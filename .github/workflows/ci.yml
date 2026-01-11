@@ -122,6 +122,9 @@ jobs:
           pip install requests httpx aiohttp urllib3
       - name: Build and install
         run: |
-          maturin develop --features python,fetch
+          maturin build --features python,fetch
+          pip install target/wheels/*.whl
+        shell: bash
       - name: Run Python tests
         run: pytest tests/ -v --tb=short
+
