@@ -2,17 +2,17 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :white_check_mark: |
+| Version | Supported |
+| ------- | --------- |
+| 0.2.x   | Yes       |
+| 0.1.x   | Yes       |
 
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in `url_jail`, please report it responsibly:
 
 1. **Do NOT** open a public GitHub issue for security vulnerabilities
-2. Email the maintainers directly or use GitHub's private vulnerability reporting
+2. **Email**: [security@tenuo.dev](mailto:security@tenuo.dev)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -90,6 +90,14 @@ The `RequestsToolkit` component lacked restrictions on remote addresses, allowin
 
 **How url_jail helps mitigate this**: The `PublicOnly` policy (default) blocks private and internal IP ranges. IP encoding tricks (octal, hex, decimal) that bypass naive string-based filters are detected and rejected.
 
+### CVE-2025-61784: LlamaFactory Chat API SSRF
+
+**Severity**: High (CVSS 7.6-8.1)
+
+The LlamaFactory chat API (`/v1/chat/completions`) fetched user-provided image/video URLs without validating the resolved IP address. The code checked if input "looked like a URL" but the HTTP client connected to whatever IP the DNS returned, including internal metadata services.
+
+**How url_jail helps mitigate this**: `url_jail` validates URLs *after* DNS resolution, ensuring the resolved IP is not in a blocked range (private, loopback, metadata). This closes the gap between "looks like a valid URL" and "connects to a safe IP."
+
 ### Example Usage
 
 ```python
@@ -100,9 +108,10 @@ from url_jail import get_sync
 body = get_sync(user_url)  # Validates URL and all redirects
 ```
 
-For LangChain specifically, wrap URL fetching with `url_jail` validation before passing to loaders or toolkits.
+For LLM frameworks, wrap URL fetching with `url_jail` validation before passing to loaders, toolkits, or multimodal handlers.
 
-**Note**: `url_jail` is not a complete fix for these CVEs. Those require updates to LangChain itself. However, `url_jail` provides defense-in-depth against the same attack patterns.
+**Note**: `url_jail` is not a complete fix for these CVEs. Those require updates to the affected frameworks. However, `url_jail` provides defense-in-depth against the same attack patterns.
+
 
 ## Security Model
 
@@ -124,6 +133,7 @@ For LangChain specifically, wrap URL fetching with `url_jail` validation before 
 
 - **Time-of-check/time-of-use (TOCTOU)**: If you don't use the returned IP immediately, DNS could change. Always connect right after validation.
 - **DNS rebinding (if misused)**: Protection only works if you use `Validated.ip` for the connection, not a second DNS lookup.
+- **Python adapters with HTTPS**: The `safe_session()` (requests) and `safe_urllib3_pool()` adapters cannot pin HTTPS connections to the validated IP without breaking TLS certificate validation. Use `get_sync()` or `safe_httpx_client()` for full HTTPS protection. See `python/url_jail/adapters/README.md` for details.
 - **Application-layer vulnerabilities**: We validate URLs, not request content or headers.
 - **DNS cache poisoning**: Out of scope. Use DNSSEC at the resolver level.
 - **Non-HTTP protocols**: Only `http://` and `https://` schemes are validated.
