@@ -115,24 +115,34 @@
 //!
 //! ## Error Handling
 //!
-//! All errors are returned via the [`Error`] enum:
+//! All errors are returned via the [`Error`] enum. Use helper methods to categorize errors:
 //!
-//! ```rust,no_run
-//! use url_jail::{validate, Policy, Error};
+//! ```rust
+//! use url_jail::{validate_sync, Policy, Error};
 //!
-//! # async fn example() {
-//! match validate("http://127.0.0.1/", Policy::PublicOnly).await {
+//! match validate_sync("http://127.0.0.1/", Policy::PublicOnly) {
 //!     Ok(v) => println!("Safe: {}", v.ip),
-//!     Err(Error::SsrfBlocked { ip, reason, .. }) => {
-//!         println!("Blocked: {} - {}", ip, reason);
+//!     Err(e) if e.is_blocked() => {
+//!         // Security rejection: SsrfBlocked, HostnameBlocked, RedirectBlocked
+//!         println!("Blocked: {}", e);
+//!         if let Some(url) = e.url() {
+//!             println!("URL: {}", url);
+//!         }
 //!     }
-//!     Err(Error::InvalidUrl { reason, .. }) => {
-//!         println!("Bad URL: {}", reason);
+//!     Err(e) if e.is_retriable() => {
+//!         // Temporary error: DnsError, Timeout, HttpError
+//!         // Retry with caution for untrusted URLs
+//!         println!("Temporary: {}", e);
 //!     }
 //!     Err(e) => println!("Error: {}", e),
 //! }
-//! # }
 //! ```
+//!
+//! | Method | Returns `true` for |
+//! |--------|-------------------|
+//! | [`Error::is_blocked()`] | Security rejections (`SsrfBlocked`, `HostnameBlocked`, `RedirectBlocked`) |
+//! | [`Error::is_retriable()`] | Temporary errors (`DnsError`, `Timeout`, `HttpError`) |
+//! | [`Error::url()`] | Returns the URL that caused the error (if available) |
 //!
 //! ## Security Considerations
 //!

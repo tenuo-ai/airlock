@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [stable, "1.83"]  # stable + MSRV
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +69,25 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate coverage
+        run: cargo llvm-cov --features fetch --lcov --output-path lcov.info
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
   python:
     name: Python Bindings
     runs-on: ubuntu-latest
@@ -103,3 +122,23 @@ jobs:
           policy = PolicyBuilder(Policy.ALLOW_PRIVATE).block_cidr('10.0.0.0/8').build()
           print('PolicyBuilder OK')
           "
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install maturin pytest pytest-asyncio
+          pip install requests httpx aiohttp urllib3
+      - name: Build and install
+        run: |
+          maturin develop --features python,fetch
+      - name: Run Python tests
+        run: pytest tests/ -v --tb=short
+

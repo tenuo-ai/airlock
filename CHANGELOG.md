@@ -44,7 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `InvalidUrl` error now includes the URL in the display format
 
-## [0.1.0] - 2026-01-08
+## [0.1.x] - 2025 to 2026-01-08
+
+Versions 0.1.0 through 0.1.10.
 
 ### Added
 
@@ -118,4 +120,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/tenuo-ai/url_jail/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/tenuo-ai/url_jail/compare/v0.1.10...v0.2.0
-[0.1.0]: https://github.com/tenuo-ai/url_jail/releases/tag/v0.1.0
+[0.1.x]: https://github.com/tenuo-ai/url_jail/releases/tag/v0.1.10

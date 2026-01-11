@@ -127,6 +127,31 @@ let policy = PolicyBuilder::new(Policy::AllowPrivate)
     .build();
 ```
 
+## Error Handling
+
+```rust
+use url_jail::{validate_sync, Policy, Error};
+
+match validate_sync("http://127.0.0.1/", Policy::PublicOnly) {
+    Ok(v) => println!("Safe: {}", v.ip),
+    Err(e) if e.is_blocked() => {
+        // Security rejection (SSRF, hostname, redirect)
+        println!("Blocked: {}", e);
+    }
+    Err(e) if e.is_retriable() => {
+        // Temporary error (DNS, timeout) - retry with caution
+        println!("Temporary: {}", e);
+    }
+    Err(e) => println!("Error: {}", e),
+}
+```
+
+| Method | Returns `true` for |
+|--------|-------------------|
+| `is_blocked()` | `SsrfBlocked`, `HostnameBlocked`, `RedirectBlocked` |
+| `is_retriable()` | `DnsError`, `Timeout`, `HttpError` |
+| `url()` | Extracts the URL that caused the error |
+
 ## What's Blocked
 
 - Cloud metadata endpoints (AWS, GCP, Azure, Alibaba)
