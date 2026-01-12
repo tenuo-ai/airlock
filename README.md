@@ -37,8 +37,6 @@ Attackers encode IPs in ways your blocklist won't catch:
 
 **url_jail validates after DNS resolution.** Encoding tricks don't work.
 
-> **Note**: This library has not undergone a formal security audit. See [SECURITY.md](SECURITY.md).
-
 ## The Solution
 
 **Python (recommended):**
